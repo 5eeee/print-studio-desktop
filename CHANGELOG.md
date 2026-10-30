@@ -1,5 +1,11 @@
 # Print Studio
 
+## 0.3.0
+
+- Redesigned red/white workspace, header, grouped settings and persistent print footer.
+- Added responsive full-page preview and compact side-by-side dimensions.
+- Checked 1200x820 and 960x640 layouts; print backend unchanged.
+
 ## 0.2.0
 
 - Added a model-specific RAW PostScript print path for Xerox C7000 PS queues.

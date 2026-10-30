@@ -2,7 +2,7 @@ import sys, os
 import fitz
 from PySide6.QtCore import Qt, QSizeF, QRectF, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPageSize, QPageLayout
-from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QLabel,QPushButton,QComboBox,QDoubleSpinBox,QSpinBox,QFileDialog,QMessageBox,QScrollArea
+from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QLabel,QPushButton,QComboBox,QDoubleSpinBox,QSpinBox,QFileDialog,QMessageBox,QScrollArea,QFrame,QGridLayout,QSizePolicy
 from PySide6.QtPrintSupport import QPrinter,QPrinterInfo,QPrintDialog
 import json, subprocess, tempfile, shutil, concurrent.futures
 from pathlib import Path
@@ -10,39 +10,99 @@ from ps_job import check_settings, inspect_queue, make_ps, spool_ps
 
 class Studio(QMainWindow):
     def __init__(self):
-        super().__init__(); self.doc=None; self.image=None; self.setWindowTitle('Print Studio 0.2 • проверяемая печать'); self.resize(1180,820)
-        self.printer=QPrinter(QPrinter.HighResolution); self.pool=concurrent.futures.ThreadPoolExecutor(max_workers=1); self.pending=None; self.timer=QTimer(self); self.timer.timeout.connect(self.poll_job); self.timer.start(250)
-        root=QWidget(); self.setCentralWidget(root); layout=QHBoxLayout(root)
-        side=QWidget(); side.setFixedWidth(320); controls=QVBoxLayout(side); controls.setSpacing(5); panel=QScrollArea(); panel.setWidgetResizable(True); panel.setFixedWidth(345); panel.setWidget(side); layout.addWidget(panel)
-        title=QLabel('PRINT STUDIO'); title.setObjectName('title'); controls.addWidget(title)
-        controls.addWidget(QLabel('Документ → лист → печать'))
-        self.addbutton(controls,'Открыть PDF или изображение',self.open)
-        self.filename=QLabel('Файл не выбран'); self.filename.setWordWrap(True); controls.addWidget(self.filename)
-        self.page=QSpinBox(); self.page.setMinimum(1); self.field(controls,'Страница предпросмотра',self.page)
-        self.queue=QComboBox(); self.queue.addItems(QPrinterInfo.availablePrinterNames()); self.field(controls,'Принтер',self.queue)
+        super().__init__(); self.doc=None; self.image=None
+        self.setWindowTitle('Print Studio 0.3'); self.resize(1200,820); self.setMinimumSize(960,640)
+        self.printer=QPrinter(QPrinter.HighResolution); self.pool=concurrent.futures.ThreadPoolExecutor(max_workers=1); self.pending=None
+        self.timer=QTimer(self); self.timer.timeout.connect(self.poll_job); self.timer.start(250)
+        root=QWidget(); root.setObjectName('root'); self.setCentralWidget(root)
+        outer=QVBoxLayout(root); outer.setContentsMargins(0,0,0,0); outer.setSpacing(0)
+        header=QFrame(); header.setObjectName('header'); head=QHBoxLayout(header); head.setContentsMargins(24,16,24,16)
+        logo=QLabel('P / S'); logo.setObjectName('logo'); head.addWidget(logo)
+        brand=QVBoxLayout(); brand.setSpacing(0); name=QLabel('Print Studio'); name.setObjectName('brand'); brand.addWidget(name)
+        sub=QLabel('Печать, которую удобно готовить'); sub.setObjectName('muted'); brand.addWidget(sub); head.addLayout(brand); head.addStretch()
+        badge=QLabel('XEROX C7000  /  PS'); badge.setObjectName('badge'); head.addWidget(badge)
+        self.addbutton(head,'＋  Открыть файл',self.open,'primary'); outer.addWidget(header)
+        body=QHBoxLayout(); body.setContentsMargins(20,20,20,16); body.setSpacing(20); outer.addLayout(body,1)
+        stage=QFrame(); stage.setObjectName('stage'); stagebox=QVBoxLayout(stage); stagebox.setContentsMargins(20,16,20,16)
+        bar=QHBoxLayout(); label=QLabel('ПРЕДПРОСМОТР'); label.setObjectName('eyebrow'); bar.addWidget(label); bar.addStretch()
+        self.page=QSpinBox(); self.page.setMinimum(1); self.page.setFixedWidth(74); self.page.setToolTip('Страница предпросмотра. На печать отправляются все страницы файла.')
+        bar.addWidget(QLabel('Страница')); bar.addWidget(self.page); self.addbutton(bar,'↻  Повернуть лист',self.rotate,'secondary'); stagebox.addLayout(bar)
+        area=QScrollArea(); area.setObjectName('previewArea'); area.setWidgetResizable(True); area.setFrameShape(QFrame.NoFrame)
+        self.canvas=QLabel('Ваш следующий отпечаток\n\nОткройте PDF или изображение\nPDF · JPEG · PNG · TIFF · BMP · WebP'); self.canvas.setObjectName('canvas'); self.canvas.setAlignment(Qt.AlignCenter)
+        self.previewArea=area; self.canvas.setMinimumSize(1,1); self.canvas.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Ignored); area.setWidget(self.canvas); stagebox.addWidget(area,1)
+        self.filename=QLabel('Документ не выбран'); self.filename.setObjectName('filename'); self.filename.setWordWrap(True); stagebox.addWidget(self.filename)
+        body.addWidget(stage,1)
+        panel=QScrollArea(); panel.setFixedWidth(330); panel.setWidgetResizable(True); panel.setFrameShape(QFrame.NoFrame); panel.setObjectName('settingsScroll')
+        side=QWidget(); side.setObjectName('settings'); controls=QVBoxLayout(side); controls.setContentsMargins(18,18,18,18); controls.setSpacing(10); panel.setWidget(side); body.addWidget(panel)
+        self.section(controls,'01','Принтер и бумага')
+        self.queue=QComboBox(); self.queue.addItems(QPrinterInfo.availablePrinterNames()); self.field(controls,'Очередь печати',self.queue)
         for i in range(self.queue.count()):
             if 'C7000' in self.queue.itemText(i) and 'V4' in self.queue.itemText(i): self.queue.setCurrentIndex(i); break
-        self.format=QComboBox(); self.format.addItems(['A3','A4','A5','Свой размер']); self.field(controls,'Размер листа',self.format)
-        self.width=QDoubleSpinBox(); self.height=QDoubleSpinBox()
+        self.media=QComboBox(); self.media.addItems(['Глянец · 170 г/м²','Обычная бумага','Другой носитель']); self.field(controls,'Носитель',self.media)
+        self.section(controls,'02','Размер и размещение')
+        self.format=QComboBox(); self.format.addItems(['A3','A4','A5','Свой размер']); self.field(controls,'Формат листа',self.format)
+        self.width=QDoubleSpinBox(); self.height=QDoubleSpinBox(); dims=QHBoxLayout(); dims.setSpacing(10)
         for box,value,label in [(self.width,297,'Ширина, мм'),(self.height,420,'Высота, мм')]:
-            box.setRange(20,2000); box.setValue(value); self.field(controls,label,box); box.valueChanged.connect(self.preview)
-        self.mode=QComboBox(); self.mode.addItems(['Вписать целиком','Заполнить с обрезкой']); self.field(controls,'Размещение',self.mode)
-        self.margin=QDoubleSpinBox(); self.margin.setRange(0,50); self.margin.setValue(5); self.field(controls,'Поля макета, мм',self.margin)
-        self.duplex=QComboBox(); self.duplex.addItems(['Одна сторона','Две стороны • длинный край','Две стороны • короткий край']); self.field(controls,'Стороны',self.duplex)
-        self.media=QComboBox(); self.media.addItems(['Глянец 170 г/м²','Обычная бумага','Другой носитель']); self.field(controls,'Автоматический тип носителя',self.media)
-        self.copies=QSpinBox(); self.copies.setRange(1,999); self.field(controls,'Копии',self.copies)
-        self.addbutton(controls,'Повернуть лист',self.rotate)
-        self.addbutton(controls,'Проверить готовность очереди',self.validate_native)
-        self.addbutton(controls,'Печатать автоматически',self.print_native)
-        self.addbutton(controls,'Диагностика драйвера → буфер',self.scan_native)
-        hint=QLabel('Прямая печать PostScript: команды носителя и Enhanced из PPD Xerox. Растр 1200 × 2400. Приём задания Windows не подтверждает физический результат. Печатаются все страницы; для пробы откройте одностраничный PDF.'); hint.setWordWrap(True); controls.addWidget(hint); controls.addStretch()
-        area=QScrollArea(); area.setWidgetResizable(True); self.canvas=QLabel('Откройте документ\nPDF • JPEG • PNG • TIFF • BMP • WebP'); self.canvas.setAlignment(Qt.AlignCenter); area.setWidget(self.canvas); layout.addWidget(area)
-        self.statusBar().showMessage('Готово • физический отпечаток требует проверки на принтере')
+            box.setRange(20,2000); box.setValue(value); box.setDecimals(1); col=QVBoxLayout(); self.field(col,label,box); dims.addLayout(col)
+        controls.addLayout(dims)
+        self.mode=QComboBox(); self.mode.addItems(['Вписать целиком','Заполнить с обрезкой']); self.field(controls,'Размещение изображения',self.mode)
+        self.margin=QDoubleSpinBox(); self.margin.setRange(0,50); self.margin.setValue(5); self.margin.setSuffix(' мм'); self.field(controls,'Поля макета',self.margin)
+        self.section(controls,'03','Параметры задания')
+        self.duplex=QComboBox(); self.duplex.addItems(['Одна сторона','Две стороны · длинный край','Две стороны · короткий край']); self.field(controls,'Стороны',self.duplex)
+        self.copies=QSpinBox(); self.copies.setRange(1,999); self.field(controls,'Количество копий',self.copies)
+        quality=QLabel('ENHANCED\nПодготовка 1200 × 2400'); quality.setObjectName('quality'); controls.addWidget(quality)
+        hint=QLabel('Нулевые поля не отменяют границы печати аппарата. Для первой пробы откройте одностраничный файл.'); hint.setWordWrap(True); hint.setObjectName('hint'); controls.addWidget(hint)
+        self.addbutton(controls,'Диагностика драйвера',self.scan_native,'text'); controls.addStretch()
+        footer=QFrame(); footer.setObjectName('footer'); foot=QHBoxLayout(footer); foot.setContentsMargins(24,14,24,14)
+        note=QLabel('Готовим точный макет.\nРезультат на аппарате проверяется контрольным отпечатком.'); note.setObjectName('muted'); foot.addWidget(note,1)
+        self.addbutton(foot,'Проверить очередь',self.validate_native,'secondary'); self.printButton=self.addbutton(foot,'Печатать автоматически  →',self.print_native,'primary'); outer.addWidget(footer)
+        self.statusBar().showMessage('Готово к работе')
         self.page.valueChanged.connect(self.preview); self.mode.currentIndexChanged.connect(self.preview); self.margin.valueChanged.connect(self.preview); self.format.currentIndexChanged.connect(self.change_format)
-        self.setStyleSheet('QWidget{font-family:Segoe UI;font-size:12px;color:#29252a;background:#fff;} QMainWindow,QScrollArea{background:#f3f0f1;} QPushButton{background:#c92239;color:white;border:0;border-radius:7px;padding:9px;} QPushButton:hover{background:#a4152b;} QComboBox,QSpinBox,QDoubleSpinBox{border:1px solid #d9ced1;border-radius:5px;padding:4px;} QLabel#title{font-size:26px;font-weight:800;color:#c92239;}')
-    def field(self,l,t,w): l.addWidget(QLabel(t)); l.addWidget(w)
-    def addbutton(self,l,t,f):
-        b=QPushButton(t); b.clicked.connect(f); l.addWidget(b)
+        self.width.valueChanged.connect(self.preview); self.height.valueChanged.connect(self.preview)
+        self.setStyleSheet("""
+            QWidget {font-family:'Segoe UI'; font-size:12px; color:#242831;}
+            QMainWindow, QWidget#root {background:#f4f5f7;}
+            QFrame#header,QFrame#footer {background:#fff; border:0;}
+            QFrame#header {border-bottom:1px solid #e4e6eb;}
+            QFrame#footer {border-top:1px solid #e4e6eb;}
+            QLabel#logo {background:#d61f3d;color:white;font-size:19px;font-weight:800;border-radius:12px;padding:13px;}
+            QLabel#brand {font-size:24px;font-weight:750;letter-spacing:-1px;}
+            QLabel#muted {color:#737b88;font-size:11px;}
+            QLabel#badge {color:#9d2840;background:#fff0f3;border:1px solid #f6d5dd;border-radius:6px;padding:8px;font-size:10px;font-weight:700;}
+            QFrame#stage {background:#e9ecf0;border:1px solid #e0e4e9;border-radius:14px;}
+            QScrollArea#previewArea,QLabel#canvas {background:transparent;border:0;color:#7c8491;}
+            QLabel#canvas {font-size:16px;}
+            QLabel#eyebrow {font-size:10px;font-weight:700;color:#6a7280;letter-spacing:2px;}
+            QLabel#filename {color:#677180;font-size:11px;padding-top:8px;}
+            QScrollArea#settingsScroll,QWidget#settings {background:white;border-radius:14px;}
+            QLabel#section {font-size:15px;font-weight:700;padding-top:10px;padding-bottom:3px;}
+            QLabel#field {color:#747c89;font-size:11px;}
+            QComboBox,QSpinBox,QDoubleSpinBox {background:#f8f9fb;border:1px solid #e1e5eb;border-radius:7px;padding:7px;color:#262c35;selection-background-color:#d61f3d;}
+            QComboBox:focus,QSpinBox:focus,QDoubleSpinBox:focus {border:1px solid #d61f3d;}
+            QComboBox::drop-down {border:0;width:22px;}
+            QComboBox QAbstractItemView {background:white;color:#242831;selection-background-color:#ffedf1;selection-color:#a21430;}
+            QPushButton {border-radius:8px;padding:10px 14px;font-weight:600;}
+            QPushButton#primary {background:#d61f3d;color:white;border:1px solid #d61f3d;}
+            QPushButton#primary:hover {background:#b91531;}
+            QPushButton#secondary {background:white;color:#454e5c;border:1px solid #d9dfe7;}
+            QPushButton#secondary:hover {background:#f5f6f8;}
+            QPushButton#text {background:transparent;color:#8a3448;border:0;text-align:left;padding-left:0;}
+            QLabel#quality {background:#fff1f4;border:1px solid #f8dfe5;border-radius:8px;color:#a91b37;padding:12px;font-weight:650;}
+            QLabel#hint {color:#848b97;font-size:10px;line-height:1.5;}
+            QStatusBar {background:#f4f5f7;color:#89919d;font-size:10px;border:0;}
+            QScrollBar:vertical {background:transparent;width:7px;margin:4px 0;}
+            QScrollBar::handle:vertical {background:#cbd1da;border-radius:3px;min-height:30px;}
+            QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {height:0;}
+        """)
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if hasattr(self,"previewArea"): QTimer.singleShot(0,self.preview)
+    def field(self,l,t,w):
+        label=QLabel(t); label.setObjectName('field'); l.addWidget(label); l.addWidget(w)
+    def section(self,l,n,t):
+        label=QLabel(n+'  /  '+t); label.setObjectName('section'); l.addWidget(label)
+    def addbutton(self,l,t,f,kind='secondary'):
+        b=QPushButton(t); b.setObjectName(kind); b.setCursor(Qt.PointingHandCursor); b.clicked.connect(f); l.addWidget(b); return b
     def open(self):
         path,_=QFileDialog.getOpenFileName(self,'Открыть','','Документы (*.pdf *.jpg *.jpeg *.png *.tif *.tiff *.bmp *.webp)')
         if not path:return
@@ -68,7 +128,7 @@ class Studio(QMainWindow):
     def preview(self,*args):
         if not self.doc:return
         try:
-            w,h=self.width.value(),self.height.value(); scale=min(720/w,680/h); out=QImage(round(w*scale),round(h*scale),QImage.Format_RGB888); out.fill(Qt.white)
+            w,h=self.width.value(),self.height.value(); scale=min(max(120,self.previewArea.viewport().width()-40)/w,max(120,self.previewArea.viewport().height()-30)/h); out=QImage(round(w*scale),round(h*scale),QImage.Format_RGB888); out.fill(Qt.white)
             p=QPainter(out); p.setRenderHint(QPainter.SmoothPixmapTransform); m=self.margin.value()*scale
             self.draw(p,QRectF(m,m,out.width()-2*m,out.height()-2*m),self.render(self.page.value()-1,100)); p.end(); self.canvas.setPixmap(QPixmap.fromImage(out))
             self.statusBar().showMessage(f'{w:g} × {h:g} мм • страница {self.page.value()} / {len(self.doc)} • предпросмотр размещения')

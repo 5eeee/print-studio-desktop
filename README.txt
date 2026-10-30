@@ -1,4 +1,4 @@
-Print Studio 0.2.0 — Windows x64
+Print Studio 0.3.0 — Windows x64
 
 PDF, JPEG, PNG, TIFF, BMP, WebP; red/white UI, preview, fit/fill and copies.
 Automatic print path is model-specific RAW PostScript for Xerox C7000 PS queues.
