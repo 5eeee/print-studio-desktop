@@ -1,16 +1,32 @@
-Print Studio 0.1 — Windows x64
+Print Studio 0.2.0 — Windows x64
 
-PDF, JPEG, PNG, TIFF, BMP, WebP. Red/white interface, page preview,
-custom dimensions in mm, fit/fill, sheet rotation, copies and duplex.
-Use Xerox V4 PS driver properties in the print dialog for media and Enhanced quality.
-The media profile in the sidebar is a reminder and duplex guard, not a Xerox media command.
-Driver may normalize custom sizes. Verify paper size in its properties before printing.
-Documents are rendered to raster at up to 600 ppi, capped at 40 million pixels/page.
-This version does not promise a vector-preserving 1200x2400 pipeline or borderless printing.
-Qt driver dialog can override sheet/copies/duplex settings; inspect its final values.
-Physical Xerox output, toner adhesion, margins and duplex require acceptance at the device.
-Do not duplex 170 gsm glossy on C7000. No tray hardware configuration is changed.
-No document upload or telemetry. Source: print_studio.py.
-Dependencies: PySide6 (LGPL/GPL/commercial), PyMuPDF (AGPL/commercial).
-Application source distributed under AGPL-3.0-or-later.
-Run PrintStudio.exe from its folder; keep _internal next to it.
+PDF, JPEG, PNG, TIFF, BMP, WebP; red/white UI, preview, fit/fill and copies.
+Automatic print path is model-specific RAW PostScript for Xerox C7000 PS queues.
+Source: https://github.com/5eeee/print-studio-desktop
+
+The application requests Glossy Cardstock or Plain and Enhanced using the exact
+PostScript commands in Xerox C7000 Generic PPD 5.739.0.0:
+https://www.support.xerox.com/en-us/product/versalink-c7000/content/148618
+The Xerox manual associates Enhanced with 1200 x 2400 dpi device output.
+Print pages use lossless RGB raster tiles sampled at 1200 x 2400 per inch.
+No 600 ppi intermediate print stage. Small source photos do not gain detail.
+
+Queue RAW support is checked before submission. Windows accepting a spool job
+is NOT confirmation that hardware printed it or honoured all settings.
+Physical Xerox acceptance, vendor PostScript commands, media, margins and duplex
+must be checked on the customer's device. No physical device is available here.
+This release does not automatically configure physical trays or bypass paper prompts.
+Xerox properties need not open: this path bypasses driver rendering filters.
+No print queue defaults are changed. No automatic fallback to a different mode.
+
+Automatic size range is conservatively 105–297 x 148–432 mm, also rotated.
+Duplex in this release is limited to ordinary A3/A4/A5 paper; 170 gsm glossy is blocked.
+All document pages are printed. Test with a ONE-PAGE document first.
+Image fill crops centrally; fit keeps the whole image. No manual crop positioning yet.
+Memory is bounded by tile size; temporary jobs can be large. 2 billion pixel job limit.
+Device non-printable borders remain. Zero layout margin does not imply borderless.
+
+Scan diagnostics copy capabilities only, not documents or private parameter payloads.
+No telemetry or document uploads. Temporary raster jobs are deleted after spooling.
+Close old window before updating. Installation is per-user with a desktop shortcut.
+Dependencies: PySide6, PyMuPDF, pywin32. Source AGPL-3.0-or-later.
