@@ -1,5 +1,12 @@
 # Print Studio
 
+## 0.4.2
+
+- Added explicit painted chevrons and separate dropdown hit regions.
+- Refined primary/secondary buttons with line icons and disabled/pressed states.
+- Removed horizontal settings overflow; verified real popup opening.
+- Print backend unchanged.
+
 ## 0.4.1
 
 - Fixed actual WebP opening with a Qt decoding fallback.
