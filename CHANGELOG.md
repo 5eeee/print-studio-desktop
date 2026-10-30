@@ -1,5 +1,15 @@
 # Print Studio
 
+## 0.4.0
+
+- Added page ranges, deduplication and bounds validation.
+- Added persistent preferences and drag-and-drop opening.
+- Added Standard, Enhanced and Photo vendor modes.
+- Hid diagnostics behind an advanced-settings toggle.
+- Disabled duplicate print submission while a job is running.
+- Verified ranges, preferences, image opening and lossless raster generation.
+- Physical device acceptance is still required.
+
 ## 0.3.0
 
 - Redesigned red/white workspace, header, grouped settings and persistent print footer.

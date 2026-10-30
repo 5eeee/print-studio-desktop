@@ -1,4 +1,4 @@
-Print Studio 0.3.0 — Windows x64
+Print Studio 0.4.0 — Windows x64
 
 PDF, JPEG, PNG, TIFF, BMP, WebP; red/white UI, preview, fit/fill and copies.
 Automatic print path is model-specific RAW PostScript for Xerox C7000 PS queues.
@@ -21,7 +21,7 @@ No print queue defaults are changed. No automatic fallback to a different mode.
 
 Automatic size range is conservatively 105–297 x 148–432 mm, also rotated.
 Duplex in this release is limited to ordinary A3/A4/A5 paper; 170 gsm glossy is blocked.
-All document pages are printed. Test with a ONE-PAGE document first.
+Page range input supports 1-3, 5, 8. Empty range prints all pages. Test one page first.
 Image fill crops centrally; fit keeps the whole image. No manual crop positioning yet.
 Memory is bounded by tile size; temporary jobs can be large. 2 billion pixel job limit.
 Device non-printable borders remain. Zero layout margin does not imply borderless.

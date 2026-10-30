@@ -16,6 +16,7 @@ dup /OutputMode (enhanced) put
 >> setpagedevice'''
 
 def check_settings(config):
+    if config.get('quality','enhanced') not in ('standard','enhanced','photographic'): raise ValueError('Недопустимый режим качества.')
     w,h=float(config['width']),float(config['height'])
     # Conservative supported range. Long banners and custom duplex need separate acceptance.
     if not (105<=w<=297.01 and 148<=h<=432.01 or 148<=w<=432.01 and 105<=h<=297.01):
@@ -57,11 +58,11 @@ def make_ps(doc,destination,config):
         write(f'<< /PageSize [{w:.8f} {h:.8f}] /ImagingBBox null >> setpagedevice\n')
         write(f'1 dict dup /MediaType ({media}) put setpagedevice\n')
         write(f'<< /Duplex {str(bool(config["duplex"])).lower()} /Tumble {str(config["duplex"]==2).lower()} >> setpagedevice\n')
-        write(ENHANCED+'\n')
+        write(ENHANCED.replace('(enhanced)','('+config.get('quality','enhanced')+')')+'\n')
         write(f'<< /NumCopies {int(config["copies"])} /Collate true >> setpagedevice\n')
         # Abort before showpage if the PS interpreter substitutes the required media or quality.
         write(f'currentpagedevice /MediaType get ({media}) ne {{ /configurationerror signalerror }} if\n')
-        write('currentpagedevice /PostRenderingEnhanceDetails get /OutputMode get (enhanced) ne { /configurationerror signalerror } if\n')
+        write('currentpagedevice /PostRenderingEnhanceDetails get /OutputMode get ('+config.get('quality','enhanced')+') ne { /configurationerror signalerror } if\n')
         write('%%EndSetup\n')
         for n in range(len(doc)):
             composed=fitz.open()
@@ -96,7 +97,7 @@ def make_ps(doc,destination,config):
                 composed.close()
                 if converted:converted.close()
         write('%%Trailer\n%%EOF\n\x1b%-12345X@PJL EOJ\n\x1b%-12345X\n')
-    return dict(x=1200,y=2400,widthPixels=xp,heightPixels=yp,pages=len(doc),lossless=True,quality='Enhanced',media=media)
+    return dict(x=1200,y=2400,widthPixels=xp,heightPixels=yp,pages=len(doc),lossless=True,quality=config.get('quality','enhanced'),media=media)
 
 def spool_ps(queue,path):
     import win32print

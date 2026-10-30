@@ -2,7 +2,7 @@ import sys, os
 import fitz
 from PySide6.QtCore import Qt, QSizeF, QRectF, QTimer
 from PySide6.QtGui import QImage, QPixmap, QPainter, QPageSize, QPageLayout
-from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QLabel,QPushButton,QComboBox,QDoubleSpinBox,QSpinBox,QFileDialog,QMessageBox,QScrollArea,QFrame,QGridLayout,QSizePolicy
+from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QLabel,QPushButton,QComboBox,QDoubleSpinBox,QSpinBox,QFileDialog,QMessageBox,QScrollArea,QFrame,QGridLayout,QSizePolicy,QLineEdit,QCheckBox
 from PySide6.QtPrintSupport import QPrinter,QPrinterInfo,QPrintDialog
 import json, subprocess, tempfile, shutil, concurrent.futures
 from pathlib import Path
@@ -11,7 +11,7 @@ from ps_job import check_settings, inspect_queue, make_ps, spool_ps
 class Studio(QMainWindow):
     def __init__(self):
         super().__init__(); self.doc=None; self.image=None
-        self.setWindowTitle('Print Studio 0.3'); self.resize(1200,820); self.setMinimumSize(960,640)
+        self.setWindowTitle('Print Studio 0.4'); self.resize(1200,820); self.setMinimumSize(960,640)
         self.printer=QPrinter(QPrinter.HighResolution); self.pool=concurrent.futures.ThreadPoolExecutor(max_workers=1); self.pending=None
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll_job); self.timer.start(250)
         root=QWidget(); root.setObjectName('root'); self.setCentralWidget(root)
@@ -50,12 +50,18 @@ class Studio(QMainWindow):
         self.section(controls,'03','Параметры задания')
         self.duplex=QComboBox(); self.duplex.addItems(['Одна сторона','Две стороны · длинный край','Две стороны · короткий край']); self.field(controls,'Стороны',self.duplex)
         self.copies=QSpinBox(); self.copies.setRange(1,999); self.field(controls,'Количество копий',self.copies)
-        quality=QLabel('ENHANCED\nПодготовка 1200 × 2400'); quality.setObjectName('quality'); controls.addWidget(quality)
+        self.range=QLineEdit(); self.range.setPlaceholderText('Все или 1-3, 5, 8'); self.field(controls,'Страницы для печати',self.range)
+        self.advanced=QCheckBox('Расширенные параметры'); controls.addWidget(self.advanced)
+        self.qualityMode=QComboBox(); self.qualityMode.addItems(['Стандартное','Повышенное','Фото']); self.qualityMode.setCurrentIndex(1); self.field(controls,'Режим качества Xerox',self.qualityMode)
+        quality=QLabel('Подготовка 1200 × 2400'); quality.setObjectName('quality'); controls.addWidget(quality)
         hint=QLabel('Нулевые поля не отменяют границы печати аппарата. Для первой пробы откройте одностраничный файл.'); hint.setWordWrap(True); hint.setObjectName('hint'); controls.addWidget(hint)
-        self.addbutton(controls,'Диагностика драйвера',self.scan_native,'text'); controls.addStretch()
+        diagnostics=self.addbutton(controls,'Диагностика драйвера',self.scan_native,'text'); diagnostics.hide(); hint.hide(); self.advanced.toggled.connect(diagnostics.setVisible); self.advanced.toggled.connect(hint.setVisible); controls.addStretch()
         footer=QFrame(); footer.setObjectName('footer'); foot=QHBoxLayout(footer); foot.setContentsMargins(24,14,24,14)
         note=QLabel('Готовим точный макет.\nРезультат на аппарате проверяется контрольным отпечатком.'); note.setObjectName('muted'); foot.addWidget(note,1)
         self.addbutton(foot,'Проверить очередь',self.validate_native,'secondary'); self.printButton=self.addbutton(foot,'Печатать автоматически  →',self.print_native,'primary'); outer.addWidget(footer)
+        self.setAcceptDrops(True)
+        self.settingsFile=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'PrintStudio'/'preferences.json'
+        self.restore_settings()
         self.statusBar().showMessage('Готово к работе')
         self.page.valueChanged.connect(self.preview); self.mode.currentIndexChanged.connect(self.preview); self.margin.valueChanged.connect(self.preview); self.format.currentIndexChanged.connect(self.change_format)
         self.width.valueChanged.connect(self.preview); self.height.valueChanged.connect(self.preview)
@@ -105,12 +111,13 @@ class Studio(QMainWindow):
         b=QPushButton(t); b.setObjectName(kind); b.setCursor(Qt.PointingHandCursor); b.clicked.connect(f); l.addWidget(b); return b
     def open(self):
         path,_=QFileDialog.getOpenFileName(self,'Открыть','','Документы (*.pdf *.jpg *.jpeg *.png *.tif *.tiff *.bmp *.webp)')
-        if not path:return
+        if path:self.load_path(path)
+    def load_path(self,path):
         try:
             doc=fitz.open(path)
             if doc.needs_pass: raise ValueError('PDF защищён паролем. Откройте незашифрованную копию.')
             if self.doc:self.doc.close()
-            self.doc=doc; self.filename.setText(os.path.basename(path)); self.page.setMaximum(len(doc)); self.page.setValue(1); self.preview()
+            self.doc=doc; self.range.clear(); self.filename.setText(os.path.basename(path)); self.page.setMaximum(len(doc)); self.page.setValue(1); self.preview()
         except Exception as e: QMessageBox.warning(self,'Не удалось открыть',str(e))
     def change_format(self):
         sizes=[(297,420),(210,297),(148,210)]
@@ -136,7 +143,7 @@ class Studio(QMainWindow):
     def config_native(self):
         if self.media.currentIndex()==2: raise ValueError('Выберите глянец 170 или обычную бумагу. Произвольный носитель ещё не сопоставлен.')
         if self.media.currentIndex()==0 and self.duplex.currentIndex(): raise ValueError('Глянец 170 г/м² требует односторонней печати.')
-        return dict(queue=self.queue.currentText(),width=self.width.value(),height=self.height.value(),margin=self.margin.value(),fill=bool(self.mode.currentIndex()),media='glossy170' if self.media.currentIndex()==0 else 'plain',duplex=self.duplex.currentIndex(),copies=self.copies.value())
+        return dict(queue=self.queue.currentText(),width=self.width.value(),height=self.height.value(),margin=self.margin.value(),fill=bool(self.mode.currentIndex()),media='glossy170' if self.media.currentIndex()==0 else 'plain',duplex=self.duplex.currentIndex(),copies=self.copies.value(),quality=['standard','enhanced','photographic'][self.qualityMode.currentIndex()])
     def helper(self,config,folder,action):
         config=dict(config,action=action)
         request=Path(folder)/'request.json'; request.write_text(json.dumps(config),encoding='utf-8')
@@ -151,12 +158,21 @@ class Studio(QMainWindow):
         if self.pending: return
         try:
             config=self.config_native()
+            self.save_settings()
             if action=='print' and not self.doc: raise ValueError('Сначала откройте документ.')
             # Independent PDF snapshot keeps document access on the worker thread safe.
+            selected=self.selected_pages() if self.doc else []
             snapshot=self.doc.convert_to_pdf() if self.doc and not self.doc.is_pdf else (self.doc.tobytes() if self.doc else None)
+            if snapshot and action=='print':
+                original=fitz.open('pdf',snapshot); subset=fitz.open()
+                try:
+                    for index in selected:subset.insert_pdf(original,from_page=index,to_page=index)
+                    snapshot=subset.tobytes()
+                finally:original.close(); subset.close()
             self.pending_action=action
             self.pending=self.pool.submit(self.worker_native,config,action,snapshot)
-            self.statusBar().showMessage('Проверка возможностей драйвера…')
+            self.printButton.setEnabled(False)
+            self.statusBar().showMessage('Подготовка задания…')
         except Exception as e: QMessageBox.warning(self,'Проверка',str(e))
     def worker_native(self,config,action,snapshot):
         folder=tempfile.mkdtemp(prefix='PrintStudio-job-')
@@ -164,7 +180,7 @@ class Studio(QMainWindow):
             if action=='scan':return self.helper(config,folder,'scan')
             check_settings(config)
             report=inspect_queue(config['queue'])
-            report.update(ok=True,message='Очередь поддерживает отправку RAW PostScript. Будут запрошены Enhanced и выбранный тип бумаги. Физическое разрешение и результат аппарата ещё не подтверждены.')
+            report.update(ok=True,message='Очередь поддерживает отправку RAW PostScript. Будут запрошены выбранный режим качества и тип бумаги. Физическое разрешение и результат аппарата ещё не подтверждены.')
             if action!='print':return report
             document=fitz.open('pdf',snapshot)
             try:
@@ -172,13 +188,13 @@ class Studio(QMainWindow):
                 grid=make_ps(document,path,config)
             finally:document.close()
             job_id=spool_ps(config['queue'],path)
-            report.update(sourceGrid=grid,jobId=job_id,message=f'Задание №{job_id} передано Windows: растр 1200 × 2400, команды Enhanced и типа бумаги включены. Проверьте экран аппарата и контрольный отпечаток.')
+            report.update(sourceGrid=grid,jobId=job_id,message=f'Задание №{job_id} передано Windows: растр 1200 × 2400, команды выбранного качества и типа бумаги включены. Проверьте экран аппарата и контрольный отпечаток.')
             return report
         finally:
             shutil.rmtree(folder,ignore_errors=True)
     def poll_job(self):
         if not self.pending or not self.pending.done(): return
-        future=self.pending; self.pending=None
+        future=self.pending; self.pending=None; self.printButton.setEnabled(True)
         try:
             report=future.result()
             if self.pending_action=='scan':
@@ -193,9 +209,45 @@ class Studio(QMainWindow):
     def validate_native(self): self.begin_native('validate')
     def scan_native(self): self.begin_native('scan')
     def print_native(self): self.begin_native('print')
+    def selected_pages(self):
+        text=self.range.text().strip()
+        if not text:return list(range(len(self.doc)))
+        result=[]
+        for token in text.split(','):
+            bounds=token.strip().split('-')
+            if len(bounds)>2:raise ValueError('Страницы: используйте 1-3, 5, 8.')
+            start=int(bounds[0]); end=int(bounds[-1])
+            if not 1<=start<=end<=len(self.doc):raise ValueError('Диапазон выходит за пределы документа.')
+            for n in range(start-1,end):
+                if n not in result:result.append(n)
+        return result
+    def save_settings(self):
+        data={name:getattr(self,name).value() for name in ('width','height','margin','copies')}
+        data.update({name:getattr(self,name).currentIndex() for name in ('format','mode','media','duplex','qualityMode')})
+        data['queue']=self.queue.currentText()
+        self.settingsFile.parent.mkdir(parents=True,exist_ok=True)
+        self.settingsFile.write_text(json.dumps(data),encoding='utf-8')
+    def restore_settings(self):
+        try:
+            data=json.loads(self.settingsFile.read_text(encoding='utf-8'))
+            for name in ('format','mode','media','duplex','qualityMode'):
+                box=getattr(self,name); value=int(data.get(name,box.currentIndex()))
+                if 0<=value<box.count():box.setCurrentIndex(value)
+            for name in ('width','height','margin','copies'):
+                if name in data:getattr(self,name).setValue(data[name])
+            index=self.queue.findText(data.get('queue',''))
+            if index>=0:self.queue.setCurrentIndex(index)
+        except (OSError,ValueError,TypeError):pass
+    def dragEnterEvent(self,event):
+        if event.mimeData().hasUrls():event.acceptProposedAction()
+    def dropEvent(self,event):
+        urls=event.mimeData().urls()
+        if urls and urls[0].isLocalFile():self.load_path(urls[0].toLocalFile())
     def closeEvent(self,event):
         if self.pending:
             QMessageBox.information(self,'Задание выполняется','Дождитесь завершения проверки или передачи задания.'); event.ignore(); return
+        try:self.save_settings()
+        except OSError:pass
         self.pool.shutdown(wait=False); event.accept()
 
 if __name__=='__main__':
