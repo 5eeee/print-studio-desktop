@@ -7,8 +7,16 @@ New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
 $zipFile = Join-Path $downloadRoot 'PrintStudio.zip'
 $hashFile = Join-Path $downloadRoot 'PrintStudio.zip.sha256'
 Write-Host 'Downloading Print Studio...'
-Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/PrintStudio.zip" -OutFile $zipFile
-Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/PrintStudio.zip.sha256" -OutFile $hashFile
+if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+    & curl.exe --fail --location --retry 2 --connect-timeout 20 --max-time 600 --output $zipFile "$releaseBase/PrintStudio.zip"
+    if ($LASTEXITCODE -ne 0) { throw 'Archive download failed' }
+    & curl.exe --fail --location --retry 2 --connect-timeout 20 --max-time 60 --output $hashFile "$releaseBase/PrintStudio.zip.sha256"
+    if ($LASTEXITCODE -ne 0) { throw 'Checksum download failed' }
+} else {
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/PrintStudio.zip" -OutFile $zipFile -TimeoutSec 600
+    Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/PrintStudio.zip.sha256" -OutFile $hashFile -TimeoutSec 60
+}
 $expectedHash = (Get-Content -LiteralPath $hashFile -Raw).Trim()
 if ($expectedHash -notmatch '^[A-Fa-f0-9]{64}$') { throw 'Invalid checksum file' }
 if ((Get-FileHash -LiteralPath $zipFile -Algorithm SHA256).Hash -ne $expectedHash) { throw 'Checksum mismatch. Installation stopped.' }
