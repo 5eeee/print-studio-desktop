@@ -1,7 +1,7 @@
 import sys, os
 import fitz
-from PySide6.QtCore import Qt, QSizeF, QRectF, QTimer
-from PySide6.QtGui import QImage, QPixmap, QPainter, QPageSize, QPageLayout
+from PySide6.QtCore import Qt, QSizeF, QRectF, QTimer, QBuffer, QByteArray, QIODevice
+from PySide6.QtGui import QImage, QPixmap, QPainter, QPageSize, QPageLayout, QImageReader
 from PySide6.QtWidgets import QApplication,QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QLabel,QPushButton,QComboBox,QDoubleSpinBox,QSpinBox,QFileDialog,QMessageBox,QScrollArea,QFrame,QGridLayout,QSizePolicy,QLineEdit,QCheckBox
 from PySide6.QtPrintSupport import QPrinter,QPrinterInfo,QPrintDialog
 import json, subprocess, tempfile, shutil, concurrent.futures
@@ -11,7 +11,7 @@ from ps_job import check_settings, inspect_queue, make_ps, spool_ps
 class Studio(QMainWindow):
     def __init__(self):
         super().__init__(); self.doc=None; self.image=None
-        self.setWindowTitle('Print Studio 0.4'); self.resize(1200,820); self.setMinimumSize(960,640)
+        self.setWindowTitle('Print Studio 0.4.1'); self.resize(1200,820); self.setMinimumSize(960,640)
         self.printer=QPrinter(QPrinter.HighResolution); self.pool=concurrent.futures.ThreadPoolExecutor(max_workers=1); self.pending=None
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll_job); self.timer.start(250)
         root=QWidget(); root.setObjectName('root'); self.setCentralWidget(root)
@@ -25,7 +25,7 @@ class Studio(QMainWindow):
         body=QHBoxLayout(); body.setContentsMargins(20,20,20,16); body.setSpacing(20); outer.addLayout(body,1)
         stage=QFrame(); stage.setObjectName('stage'); stagebox=QVBoxLayout(stage); stagebox.setContentsMargins(20,16,20,16)
         bar=QHBoxLayout(); label=QLabel('ПРЕДПРОСМОТР'); label.setObjectName('eyebrow'); bar.addWidget(label); bar.addStretch()
-        self.page=QSpinBox(); self.page.setMinimum(1); self.page.setFixedWidth(74); self.page.setToolTip('Страница предпросмотра. На печать отправляются все страницы файла.')
+        self.page=QSpinBox(); self.page.setMinimum(1); self.page.setFixedWidth(74); self.page.setToolTip('Страница предпросмотра. Диапазон печати задаётся в правой панели.')
         bar.addWidget(QLabel('Страница')); bar.addWidget(self.page); self.addbutton(bar,'↻  Повернуть лист',self.rotate,'secondary'); stagebox.addLayout(bar)
         area=QScrollArea(); area.setObjectName('previewArea'); area.setWidgetResizable(True); area.setFrameShape(QFrame.NoFrame)
         self.canvas=QLabel('Ваш следующий отпечаток\n\nОткройте PDF или изображение\nPDF · JPEG · PNG · TIFF · BMP · WebP'); self.canvas.setObjectName('canvas'); self.canvas.setAlignment(Qt.AlignCenter)
@@ -114,8 +114,19 @@ class Studio(QMainWindow):
         if path:self.load_path(path)
     def load_path(self,path):
         try:
-            doc=fitz.open(path)
-            if doc.needs_pass: raise ValueError('PDF защищён паролем. Откройте незашифрованную копию.')
+            try:doc=fitz.open(path)
+            except Exception:
+                reader=QImageReader(path); reader.setAutoTransform(True); image=reader.read()
+                if image.isNull():raise ValueError('Не удалось прочитать файл. Он повреждён или формат не поддерживается.')
+                data=QByteArray(); buffer=QBuffer(data); buffer.open(QIODevice.WriteOnly)
+                try:
+                    if not image.save(buffer,'PNG'):raise ValueError('Не удалось преобразовать изображение.')
+                finally:buffer.close()
+                doc=fitz.open('png',bytes(data))
+            if doc.needs_pass:
+                doc.close(); raise ValueError('PDF защищён паролем. Откройте незашифрованную копию.')
+            if not len(doc):
+                doc.close(); raise ValueError('В документе нет страниц.')
             if self.doc:self.doc.close()
             self.doc=doc; self.range.clear(); self.filename.setText(os.path.basename(path)); self.page.setMaximum(len(doc)); self.page.setValue(1); self.preview()
         except Exception as e: QMessageBox.warning(self,'Не удалось открыть',str(e))
@@ -137,7 +148,11 @@ class Studio(QMainWindow):
         try:
             w,h=self.width.value(),self.height.value(); scale=min(max(120,self.previewArea.viewport().width()-40)/w,max(120,self.previewArea.viewport().height()-30)/h); out=QImage(round(w*scale),round(h*scale),QImage.Format_RGB888); out.fill(Qt.white)
             p=QPainter(out); p.setRenderHint(QPainter.SmoothPixmapTransform); m=self.margin.value()*scale
-            self.draw(p,QRectF(m,m,out.width()-2*m,out.height()-2*m),self.render(self.page.value()-1,100)); p.end(); self.canvas.setPixmap(QPixmap.fromImage(out))
+            try:
+                if min(w,h)<=2*self.margin.value():raise ValueError('Уменьшите поля: они превышают размер листа.')
+                self.draw(p,QRectF(m,m,out.width()-2*m,out.height()-2*m),self.render(self.page.value()-1,100))
+            finally:p.end()
+            self.canvas.setPixmap(QPixmap.fromImage(out))
             self.statusBar().showMessage(f'{w:g} × {h:g} мм • страница {self.page.value()} / {len(self.doc)} • предпросмотр размещения')
         except Exception as e: self.statusBar().showMessage(str(e))
     def config_native(self):
@@ -158,11 +173,13 @@ class Studio(QMainWindow):
         if self.pending: return
         try:
             config=self.config_native()
-            self.save_settings()
+            try:self.save_settings()
+            except OSError:pass
             if action=='print' and not self.doc: raise ValueError('Сначала откройте документ.')
             # Independent PDF snapshot keeps document access on the worker thread safe.
-            selected=self.selected_pages() if self.doc else []
-            snapshot=self.doc.convert_to_pdf() if self.doc and not self.doc.is_pdf else (self.doc.tobytes() if self.doc else None)
+            if action!='scan':check_settings(config)
+            selected=self.selected_pages() if self.doc and action=='print' else []
+            snapshot=(self.doc.convert_to_pdf() if not self.doc.is_pdf else self.doc.tobytes()) if self.doc and action=='print' else None
             if snapshot and action=='print':
                 original=fitz.open('pdf',snapshot); subset=fitz.open()
                 try:
@@ -210,7 +227,7 @@ class Studio(QMainWindow):
     def scan_native(self): self.begin_native('scan')
     def print_native(self): self.begin_native('print')
     def selected_pages(self):
-        text=self.range.text().strip()
+        text=self.range.text().strip().replace('–','-').replace('—','-')
         if not text:return list(range(len(self.doc)))
         result=[]
         for token in text.split(','):
@@ -226,10 +243,11 @@ class Studio(QMainWindow):
         data.update({name:getattr(self,name).currentIndex() for name in ('format','mode','media','duplex','qualityMode')})
         data['queue']=self.queue.currentText()
         self.settingsFile.parent.mkdir(parents=True,exist_ok=True)
-        self.settingsFile.write_text(json.dumps(data),encoding='utf-8')
+        temporary=self.settingsFile.with_suffix('.tmp'); temporary.write_text(json.dumps(data),encoding='utf-8'); os.replace(temporary,self.settingsFile)
     def restore_settings(self):
         try:
             data=json.loads(self.settingsFile.read_text(encoding='utf-8'))
+            if not isinstance(data,dict):return
             for name in ('format','mode','media','duplex','qualityMode'):
                 box=getattr(self,name); value=int(data.get(name,box.currentIndex()))
                 if 0<=value<box.count():box.setCurrentIndex(value)
@@ -237,7 +255,7 @@ class Studio(QMainWindow):
                 if name in data:getattr(self,name).setValue(data[name])
             index=self.queue.findText(data.get('queue',''))
             if index>=0:self.queue.setCurrentIndex(index)
-        except (OSError,ValueError,TypeError):pass
+        except (OSError,ValueError,TypeError,OverflowError):pass
     def dragEnterEvent(self,event):
         if event.mimeData().hasUrls():event.acceptProposedAction()
     def dropEvent(self,event):

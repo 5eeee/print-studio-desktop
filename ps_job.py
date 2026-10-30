@@ -18,6 +18,7 @@ dup /OutputMode (enhanced) put
 def check_settings(config):
     if config.get('quality','enhanced') not in ('standard','enhanced','photographic'): raise ValueError('Недопустимый режим качества.')
     w,h=float(config['width']),float(config['height'])
+    if not all(math.isfinite(float(config[k])) for k in ('width','height','margin','copies')):raise ValueError('Параметры должны быть конечными числами.')
     # Conservative supported range. Long banners and custom duplex need separate acceptance.
     if not (105<=w<=297.01 and 148<=h<=432.01 or 148<=w<=432.01 and 105<=h<=297.01):
         raise ValueError('Автопечать C7000: допустимы размеры 105–297 × 148–432 мм, включая поворот. Для других размеров требуется отдельная проверка.')
@@ -53,7 +54,7 @@ def make_ps(doc,destination,config):
     with open(destination,'wb') as output:
         def write(text):output.write(text.encode('ascii'))
         write('\x1b%-12345X@PJL JOB\n@PJL ENTER LANGUAGE = POSTSCRIPT\n%!PS-Adobe-3.0\n')
-        write(f'%%Creator: Print Studio 0.2\n%%Pages: {len(doc)}\n%%BoundingBox: 0 0 {math.ceil(w)} {math.ceil(h)}\n%%EndComments\n')
+        write(f'%%Creator: Print Studio 0.4.1\n%%Pages: {len(doc)}\n%%BoundingBox: 0 0 {math.ceil(w)} {math.ceil(h)}\n%%EndComments\n')
         write('%%BeginSetup\n')
         write(f'<< /PageSize [{w:.8f} {h:.8f}] /ImagingBBox null >> setpagedevice\n')
         write(f'1 dict dup /MediaType ({media}) put setpagedevice\n')
@@ -79,7 +80,7 @@ def make_ps(doc,destination,config):
                         size=clip.height*ratio; clip.x0+=(clip.width-size)/2; clip.x1=clip.x0+size
                     else:
                         size=clip.width/ratio; clip.y0+=(clip.height-size)/2; clip.y1=clip.y0+size
-                page.show_pdf_page(rect,source,n,clip=clip,keep_proportion=True)
+                if source[n].get_contents():page.show_pdf_page(rect,source,n,clip=clip,keep_proportion=True)
                 write(f'%%Page: {n+1} {n+1}\n/DeviceRGB setcolorspace\n')
                 for y in range(0,yp,1024):
                     for x in range(0,xp,2048):
@@ -104,7 +105,7 @@ def spool_ps(queue,path):
     inspect_queue(queue)
     handle=win32print.OpenPrinter(queue); job_id=None; started=False
     try:
-        job_id=win32print.StartDocPrinter(handle,1,('Print Studio • Enhanced',None,'RAW')); started=True
+        job_id=win32print.StartDocPrinter(handle,1,('Print Studio',None,'RAW')); started=True
         with open(path,'rb') as source:
             while True:
                 block=source.read(1024*1024)
@@ -117,6 +118,8 @@ def spool_ps(queue,path):
         win32print.EndDocPrinter(handle); started=False
         return job_id
     except Exception:
-        if started: win32print.AbortPrinter(handle)
+        if started:
+            try:win32print.AbortPrinter(handle)
+            except Exception:pass
         raise
     finally:win32print.ClosePrinter(handle)

@@ -1,5 +1,15 @@
 # Print Studio
 
+## 0.4.1
+
+- Fixed actual WebP opening with a Qt decoding fallback.
+- Fixed blank PDF pages in PostScript generation.
+- Closed rejected encrypted/empty documents and retained the previous document on failure.
+- Added non-finite parameter rejection, atomic preference writes and malformed preference recovery.
+- Decoupled queue diagnostics from invalid page ranges and document serialization.
+- Always ended preview painters on failure; accepted typographic range dashes.
+- Added 8 automated integration/regression tests, including mock RAW transport and end-to-end job preparation.
+
 ## 0.4.0
 
 - Added page ranges, deduplication and bounds validation.
