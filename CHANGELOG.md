@@ -1,5 +1,11 @@
 # Print Studio
 
+## 0.4.3
+
+- Compact two-column settings expose quality, duplex, copies and page range without scrolling at 960x640.
+- Checked keyboard selection in all six combos, action dispatch for four buttons and rotation.
+- Physical printer acceptance remains pending.
+
 ## 0.4.2
 
 - Added explicit painted chevrons and separate dropdown hit regions.

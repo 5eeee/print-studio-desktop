@@ -10,7 +10,7 @@ from ps_job import check_settings, inspect_queue, make_ps, spool_ps
 
 class SelectBox(QComboBox):
     def __init__(self,*args):
-        super().__init__(*args); self.setMinimumHeight(40); self.setCursor(Qt.PointingHandCursor)
+        super().__init__(*args); self.setMinimumHeight(32); self.setCursor(Qt.PointingHandCursor)
         self.setMaxVisibleItems(10); self.setMinimumWidth(0); self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed); self.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon); self.setMinimumContentsLength(8)
     def paintEvent(self,event):
         super().paintEvent(event)
@@ -22,7 +22,7 @@ class SelectBox(QComboBox):
 class Studio(QMainWindow):
     def __init__(self):
         super().__init__(); self.doc=None; self.image=None
-        self.setWindowTitle('Print Studio 0.4.2'); self.resize(1200,820); self.setMinimumSize(960,640)
+        self.setWindowTitle('Print Studio 0.4.3'); self.resize(1200,820); self.setMinimumSize(960,640)
         self.printer=QPrinter(QPrinter.HighResolution); self.pool=concurrent.futures.ThreadPoolExecutor(max_workers=1); self.pending=None
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll_job); self.timer.start(250)
         root=QWidget(); root.setObjectName('root'); self.setCentralWidget(root)
@@ -43,8 +43,8 @@ class Studio(QMainWindow):
         self.previewArea=area; self.canvas.setMinimumSize(1,1); self.canvas.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Ignored); area.setWidget(self.canvas); stagebox.addWidget(area,1)
         self.filename=QLabel('Документ не выбран'); self.filename.setObjectName('filename'); self.filename.setWordWrap(True); stagebox.addWidget(self.filename)
         body.addWidget(stage,1)
-        panel=QScrollArea(); panel.setFixedWidth(330); panel.setWidgetResizable(True); panel.setFrameShape(QFrame.NoFrame); panel.setObjectName('settingsScroll')
-        side=QWidget(); side.setObjectName('settings'); controls=QVBoxLayout(side); controls.setContentsMargins(18,18,18,18); controls.setSpacing(10); panel.setWidget(side); body.addWidget(panel)
+        panel=QScrollArea(); panel.setFixedWidth(420); panel.setWidgetResizable(True); panel.setFrameShape(QFrame.NoFrame); panel.setObjectName('settingsScroll')
+        side=QWidget(); side.setObjectName('settings'); controls=QVBoxLayout(side); controls.setContentsMargins(14,10,14,10); controls.setSpacing(4); panel.setWidget(side); body.addWidget(panel)
         self.section(controls,'01','Принтер и бумага')
         self.queue=SelectBox(); self.queue.addItems(QPrinterInfo.availablePrinterNames()); self.field(controls,'Очередь печати',self.queue)
         for i in range(self.queue.count()):
@@ -54,7 +54,7 @@ class Studio(QMainWindow):
         self.format=SelectBox(); self.format.addItems(['A3','A4','A5','Свой размер']); self.field(controls,'Формат листа',self.format)
         self.width=QDoubleSpinBox(); self.height=QDoubleSpinBox(); dims=QHBoxLayout(); dims.setSpacing(10)
         for box,value,label in [(self.width,297,'Ширина, мм'),(self.height,420,'Высота, мм')]:
-            box.setRange(20,2000); box.setValue(value); box.setDecimals(1); box.setFixedWidth(128); col=QVBoxLayout(); self.field(col,label,box); dims.addLayout(col)
+            box.setRange(20,2000); box.setValue(value); box.setDecimals(1); box.setFixedWidth(78); col=QVBoxLayout(); self.field(col,label,box); dims.addLayout(col)
         controls.addLayout(dims)
         self.mode=SelectBox(); self.mode.addItems(['Вписать целиком','Заполнить с обрезкой']); self.field(controls,'Размещение изображения',self.mode)
         self.margin=QDoubleSpinBox(); self.margin.setRange(0,50); self.margin.setValue(5); self.margin.setSuffix(' мм'); self.field(controls,'Поля макета',self.margin)
@@ -62,9 +62,9 @@ class Studio(QMainWindow):
         self.duplex=SelectBox(); self.duplex.addItems(['Одна сторона','Две стороны · длинный край','Две стороны · короткий край']); self.field(controls,'Стороны',self.duplex)
         self.copies=QSpinBox(); self.copies.setRange(1,999); self.field(controls,'Количество копий',self.copies)
         self.range=QLineEdit(); self.range.setPlaceholderText('Все или 1-3, 5, 8'); self.field(controls,'Страницы для печати',self.range)
-        self.advanced=QCheckBox('Расширенные параметры'); controls.addWidget(self.advanced)
-        self.qualityMode=SelectBox(); self.qualityMode.addItems(['Стандартное','Повышенное','Фото']); self.qualityMode.setCurrentIndex(1); self.field(controls,'Режим качества Xerox',self.qualityMode)
-        quality=QLabel('Подготовка 1200 × 2400'); quality.setObjectName('quality'); controls.addWidget(quality)
+        self.advanced=QCheckBox('Диагностика и справка')
+        self.qualityMode=SelectBox(); self.qualityMode.addItems(['Стандартное','Повышенное','Фото']); self.qualityMode.setCurrentIndex(1); self.field(controls,'Режим качества Xerox',self.qualityMode); controls.addWidget(self.advanced)
+        quality=QLabel('Подготовка 1200 × 2400'); quality.setObjectName('quality'); quality.hide()
         hint=QLabel('Нулевые поля не отменяют границы печати аппарата. Для первой пробы откройте одностраничный файл.'); hint.setWordWrap(True); hint.setObjectName('hint'); controls.addWidget(hint)
         diagnostics=self.addbutton(controls,'Диагностика драйвера',self.scan_native,'text'); diagnostics.hide(); hint.hide(); self.advanced.toggled.connect(diagnostics.setVisible); self.advanced.toggled.connect(hint.setVisible); controls.addStretch()
         footer=QFrame(); footer.setObjectName('footer'); foot=QHBoxLayout(footer); foot.setContentsMargins(24,14,24,14)
@@ -73,6 +73,7 @@ class Studio(QMainWindow):
         self.setAcceptDrops(True)
         self.settingsFile=Path(os.environ.get('LOCALAPPDATA',str(Path.home())))/'PrintStudio'/'preferences.json'
         self.restore_settings()
+        self.compact_settings(controls)
         self.statusBar().showMessage('Готово к работе')
         self.page.valueChanged.connect(self.preview); self.mode.currentIndexChanged.connect(self.preview); self.margin.valueChanged.connect(self.preview); self.format.currentIndexChanged.connect(self.change_format)
         self.width.valueChanged.connect(self.preview); self.height.valueChanged.connect(self.preview)
@@ -92,11 +93,11 @@ class Studio(QMainWindow):
             QLabel#eyebrow {font-size:10px;font-weight:700;color:#6a7280;letter-spacing:2px;}
             QLabel#filename {color:#677180;font-size:11px;padding-top:8px;}
             QScrollArea#settingsScroll,QWidget#settings {background:white;border-radius:14px;}
-            QLabel#section {font-size:15px;font-weight:700;padding-top:10px;padding-bottom:3px;}
+            QLabel#section {font-size:13px;font-weight:700;padding-top:5px;padding-bottom:1px;}
             QLabel#field {color:#747c89;font-size:11px;}
-            QComboBox,QSpinBox,QDoubleSpinBox {background:#f8f9fb;border:1px solid #e1e5eb;border-radius:7px;padding:7px;color:#262c35;selection-background-color:#d61f3d;}
+            QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox {background:#f8f9fb;border:1px solid #e1e5eb;border-radius:7px;padding:4px;color:#262c35;selection-background-color:#d61f3d;}
             QComboBox:focus,QSpinBox:focus,QDoubleSpinBox:focus {border:1px solid #d61f3d;}
-            QComboBox {padding:7px 40px 7px 12px;background:white;border:1px solid #c9d1dc;border-radius:8px;}
+            QComboBox {padding:4px 34px 4px 9px;background:white;border:1px solid #c9d1dc;border-radius:8px;}
             QComboBox:hover {border-color:#8796aa;background:#fcfdff;}
             QComboBox::drop-down {subcontrol-origin:border;subcontrol-position:top right;border:0;border-left:1px solid #dbe1e9;background:#eef1f5;width:34px;border-top-right-radius:8px;border-bottom-right-radius:8px;}
             QComboBox::down-arrow {image:none;}
@@ -121,6 +122,30 @@ class Studio(QMainWindow):
             QScrollBar::handle:vertical {background:#cbd1da;border-radius:3px;min-height:30px;}
             QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {height:0;}
         """)
+    def compact_settings(self,controls):
+        items=[]
+        while controls.count():items.append(controls.takeAt(0))
+        grid=QGridLayout(); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(5)
+        grid.setColumnStretch(0,1); grid.setColumnStretch(1,1)
+        row=0; col=0; i=0
+        while i<len(items):
+            item=items[i]; widget=item.widget()
+            if widget and widget.objectName()=='field' and i+1<len(items):
+                nextitem=items[i+1]; box=QVBoxLayout(); box.setSpacing(3); box.addWidget(widget)
+                if nextitem.widget():box.addWidget(nextitem.widget())
+                elif nextitem.layout():box.addLayout(nextitem.layout())
+                grid.addLayout(box,row,col); col+=1
+                if col==2:row+=1;col=0
+                i+=2;continue
+            if item.layout():
+                grid.addLayout(item.layout(),row,col);col+=1
+                if col==2:row+=1;col=0
+                i+=1;continue
+            if col:row+=1;col=0
+            if widget:grid.addWidget(widget,row,0,1,2);row+=1
+            elif item.layout():grid.addLayout(item.layout(),row,0,1,2);row+=1
+            i+=1
+        controls.addLayout(grid);controls.addStretch()
     def resizeEvent(self,event):
         super().resizeEvent(event)
         if hasattr(self,"previewArea"): QTimer.singleShot(0,self.preview)

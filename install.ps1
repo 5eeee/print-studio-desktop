@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$releaseBase = 'https://github.com/5eeee/print-studio-desktop/releases/download/v0.4.2'
-$installRoot = Join-Path $env:LOCALAPPDATA 'PrintStudio\0.4.2'
+$releaseBase = 'https://github.com/5eeee/print-studio-desktop/releases/download/v0.4.3'
+$installRoot = Join-Path $env:LOCALAPPDATA 'PrintStudio\0.4.3'
 $downloadRoot = Join-Path ([IO.Path]::GetTempPath()) ('PrintStudio-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $downloadRoot | Out-Null
 $zipFile = Join-Path $downloadRoot 'PrintStudio.zip'
